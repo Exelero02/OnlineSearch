@@ -1,6 +1,11 @@
 import tkinter as tk
 from tkinter import scrolledtext, messagebox
 import wikipediaapi
+import pymongo
+import datetime
+from datetime import timezone
+from pymongo import MongoClient
+
 
 class WikipediaSearchApp:
     def __init__(self, root):
@@ -9,6 +14,9 @@ class WikipediaSearchApp:
         self.root.geometry("1000x800")
         self.day_mode = True
         self.setup_gui()
+        self.client = MongoClient('mongodb://localhost:27017')
+        self.db = self.client['wikipedia_search_history']
+        self.collection = self.db['searches']
 
     def setup_gui(self):
 
@@ -90,12 +98,25 @@ class WikipediaSearchApp:
 
         self.text.config(state=tk.DISABLED)
 
+        self.history_button = tk.Button(self.search_frame, text="Show History", command=self.show_search_history,
+                                        font=("Arial", 14, "bold"),
+                                        bg=self.day_mode_colors["bg_button"], fg=self.day_mode_colors["fg_button"],
+
+                                        bd=0, relief=tk.FLAT, width=10)
+        self.history_button.grid(row=2, column=2, padx=(5, 20), pady=(10, 20), sticky="e")
+
     def toggle_mode(self):
         if self.day_mode:
             self.apply_night_mode()
         else:
             self.apply_day_mode()
+        self.update_history_button_color()
         self.day_mode = not self.day_mode
+
+    def update_history_button_color(self):
+        current_bg_color = self.night_mode_colors["bg_button"] if self.day_mode else self.day_mode_colors["bg_button"]
+        current_fg_color = self.night_mode_colors["fg_button"] if self.day_mode else self.day_mode_colors["fg_button"]
+        self.history_button.config(bg=current_bg_color, fg=current_fg_color)
 
     def apply_day_mode(self):
         self.main_frame.config(bg=self.day_mode_colors["bg_main_frame"],
@@ -141,6 +162,13 @@ class WikipediaSearchApp:
             user_agent=user_agent
         )
         page = wiki_wiki.page(query)
+
+        search_entry = {
+            'query': query,
+            'timestamp': datetime.datetime.now(timezone.utc)
+        }
+        self.collection.insert_one(search_entry)
+
         if page.exists():
             self.text.config(state=tk.NORMAL)
             self.text.delete(1.0, tk.END)
@@ -151,6 +179,20 @@ class WikipediaSearchApp:
             self.text.delete(1.0, tk.END)
             self.text.insert(tk.END, "Page not found.")
             self.text.config(state=tk.DISABLED)
+
+    def show_search_history(self):
+        search_history = self.collection.find().sort('timestamp', pymongo.DESCENDING)
+        history_text = "Search History:\n\n"
+        for entry in search_history:
+            if 'timestamp' in entry:
+                history_text += f"{entry['timestamp']} - {entry['query']}\n"
+        if history_text == "Search History:\n\n":
+            history_text += "No search history found."
+        messagebox.showinfo("Search History", history_text)
+
+    def __del__(self):
+        self.client.close()
+
 
 def main():
     root = tk.Tk()
